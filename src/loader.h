@@ -66,6 +66,7 @@ typedef struct _OSDriver
 uint32_t (*OSDriver_Register)(char *driver_name, uint32_t name_length, void *buf1, void *buf2);
 uint32_t (*OSDriver_Deregister)(char *driver_name, uint32_t name_length);
 uint32_t (*OSDriver_CopyToSaveArea)(char *driver_name, uint32_t name_length, void *buf1, uint32_t size);
+uint32_t (*OSDriver_CopyFromSaveArea)(char *driver_name, uint32_t name_length, void *buf1, uint32_t size);
 
 bool (*OSCreateThread)(void *thread, void *entry, int argc, void *args, uint32_t *stack, uint32_t stack_size, int priority, uint16_t attr);
 int  (*OSResumeThread)(void *thread);
@@ -126,6 +127,10 @@ uint32_t make_pm4_type3_packet_header(uint32_t opcode, uint32_t count);
 uint32_t kern_read(const void *addr);
 void kern_write(void *addr, uint32_t value);
 void memset32(int *p, int v, unsigned int c);
+
+void kern_copyin(void *uaddr, void *kaddr, size_t len);
+void kern_copyout(void *kaddr, void *uaddr, size_t len);
+void kernel_write32(void *kaddr, uint32_t data);
 
 int sy;
 uint32_t* framebuffer_drc;
